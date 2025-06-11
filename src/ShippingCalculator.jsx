@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { Plus, Trash2, Upload, Calculator, FileText, Package } from 'lucide-react';
+import './ShippingCalculator.css';
 import * as XLSX from 'xlsx';
 
 const ShippingCalculator = () => {
@@ -72,9 +73,7 @@ const ShippingCalculator = () => {
     });
   }, []);
 const destinations = [
-    'Россия', 'США', 'Германия', 'Австрия', 'Англия', 'Франция', 'Италия',
-    'Испания', 'Польша', 'Чехия', 'Турция', 'Китай', 'Япония', 'Канада',
-    'Австралия', 'Швейцария', 'Нидерланды', 'Бельгия', 'Швеция', 'Норвегия'
+    'США', 'Россия'
   ];
 
   // Функция для загрузки Excel файлов
@@ -90,6 +89,7 @@ const destinations = [
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
         const jsonData = XLSX.utils.sheet_to_json(worksheet);
+        console.log("🔍 Ключи из Excel:", Object.keys(jsonData[0]));
         
         setTariffsData(prev => {
         localStorage.setItem(`tariffs_${country}`, JSON.stringify(jsonData));
@@ -119,60 +119,43 @@ const destinations = [
 
   // Функция для получения тарифа доставки с учетом разных форматов таблиц
   const getShippingCost = (weight, country, destination) => {
-    const tariffs = tariffsData[country];
-    if (!tariffs || tariffs.length === 0) return 0;
+  const tariffs = tariffsData[country];
+  if (!tariffs || tariffs.length === 0) return 0;
 
-    const weightKg = parseFloat(weight);
-    let shippingCost = 0;
+  const weightKg = parseFloat(weight);
+  let shippingCost = 0;
 
-    // Для таблицы первого типа (с весовыми диапазонами в колонках)
-    if (tariffs[0] && typeof tariffs[0]['0.15 кг'] !== 'undefined') {
-      const destinationRow = tariffs.find(row => 
-        row['Страна'] && row['Страна'].toLowerCase().includes(destination.toLowerCase())
-      );
-      
-      if (destinationRow) {
-        // Определяем нужную колонку по весу
-        const weightColumns = [
-          '0.15 кг', '0.5 кг', '1 кг', '1.5 кг', '2 кг', '2.5 кг', '3 кг', '3.5 кг', '4 кг',
-          '4.5 кг', '5 кг', '5.5 кг', '6 кг', '6.5 кг', '7 кг', '7.5 кг', '8 кг', '8.5 кг',
-          '9 кг', '9.5 кг', '10 кг'
-        ];
-        
-        for (let col of weightColumns) {
-          const colWeight = parseFloat(col.replace(' кг', ''));
-          if (weightKg <= colWeight && destinationRow[col]) {
-            shippingCost = parseFloat(destinationRow[col]) || 0;
-            break;
-          }
-        }
-      }
+  const destinationRow = tariffs.find(row => {
+    const countryName = row['Страна']?.toLowerCase().replace(/\(.*?\)/g, '').trim();
+    return countryName && countryName.includes(destination.toLowerCase());
+  });
+
+  if (!destinationRow) {
+    console.warn('❌ Не найдена строка по стране назначения:', destination);
+    return 0;
+  }
+
+  // Автоматически ищем все весовые колонки с "кг" и числом
+  const weightColumns = Object.keys(destinationRow)
+    .filter(key => key.toLowerCase().includes('кг') && /\d/.test(key))
+    .map(key => ({
+      key,
+      weight: parseFloat(key.replace('кг', '').replace(',', '.').trim())
+    }))
+    .sort((a, b) => a.weight - b.weight);
+
+  for (let col of weightColumns) {
+    if (weightKg <= col.weight) {
+      shippingCost = parseFloat(destinationRow[col.key]) || 0;
+      break;
     }
-    // Для таблицы второго типа (с весовыми диапазонами в строках)
-    else if (tariffs[0] && typeof tariffs[0]['до 2 кг'] !== 'undefined') {
-      const destinationRow = tariffs.find(row => 
-        row['Страна'] && row['Страна'].toLowerCase().includes(destination.toLowerCase())
-      );
-      
-      if (destinationRow) {
-        if (weightKg <= 0.5) shippingCost = parseFloat(destinationRow['0-500']) || 0;
-        else if (weightKg <= 1) shippingCost = parseFloat(destinationRow['501-1000']) || 0;
-        else if (weightKg <= 2) shippingCost = parseFloat(destinationRow['до 2 кг']) || 0;
-        else if (weightKg <= 3) shippingCost = parseFloat(destinationRow['3 кг']) || 0;
-        else if (weightKg <= 4) shippingCost = parseFloat(destinationRow['4 кг']) || 0;
-        else if (weightKg <= 5) shippingCost = parseFloat(destinationRow['5 кг']) || 0;
-        else if (weightKg <= 6) shippingCost = parseFloat(destinationRow['6 кг']) || 0;
-        else if (weightKg <= 7) shippingCost = parseFloat(destinationRow['7 кг']) || 0;
-        else if (weightKg <= 8) shippingCost = parseFloat(destinationRow['8 кг']) || 0;
-        else if (weightKg <= 9) shippingCost = parseFloat(destinationRow['9 кг']) || 0;
-        else if (weightKg <= 10) shippingCost = parseFloat(destinationRow['10 кг']) || 0;
-      }
-    }
+  }
 
-    // Конвертируем в доллары в зависимости от страны
-    const currency = country === 'belarus' ? 'BYN' : 'KZT';
-    return convertToUSD(shippingCost, currency);
-  };
+  // Конвертация валюты в зависимости от страны
+  const currency = country === 'belarus' ? 'BYN' : 'KZT';
+  return convertToUSD(shippingCost, currency);
+};
+
 
   // Добавление товара
   const addItem = () => {
@@ -275,6 +258,40 @@ const destinations = [
       savings: shippingCostSelected - shippingCostAlternative,
       destination: packageSettings.destination
     });
+      const itemDetails = items.map(item => {
+      const weight = parseFloat(item.weight) || 0;
+      const quantity = parseInt(item.quantity) || 1;
+
+      const weightTotal = weight * quantity;
+      const weightShare = totalWeight > 0 ? weightTotal / totalWeight : 0;
+
+      const purchasePrice = convertToUSD(item.price, item.priceCurrency);
+      const retailPrice = parseFloat(item.retailPrice) || 0;
+      const commissionPerItem = (retailPrice * parseFloat(packageSettings.commissionPercent || 0)) / 100;
+
+      const shippingCost = shippingCostSelected * weightShare;
+      const shippingPerUnit = quantity > 0 ? shippingCost / quantity : 0;
+      const additionalCost = additionalCosts * weightShare;
+
+      const totalCost = purchasePrice + shippingCost + additionalCost + commissionPerItem;
+      const profit = retailPrice - totalCost;
+      const marginPercent = retailPrice > 0 ? (profit / retailPrice) * 100 : 0;
+
+      return {
+        name: item.name || `Товар`,
+        cost: totalCost,
+        retail: retailPrice,
+        profit: profit,
+        marginPercent: marginPercent,
+        shippingPerUnit: shippingPerUnit
+      };
+    });
+
+    setResults(prev => ({
+      ...prev,
+      itemDetails
+    }));
+
   };
     const resetAll = () => {
     if (!confirm('Сбросить все данные калькулятора?')) return;
@@ -283,7 +300,7 @@ const destinations = [
 };
 
   return (
-    <div className="max-w-6xl mx-auto p-6 bg-gray-50 min-h-screen">
+    <div className="calculator-container">
       <div className="bg-white rounded-lg shadow-lg p-6">
         <h1 className="text-3xl font-bold text-gray-800 mb-8 text-center">
           Калькулятор доставки
@@ -643,6 +660,39 @@ const destinations = [
             </div>
           </div>
         )}
+        {/* Детализация по товарам */}
+{results?.itemDetails && (
+  <div className="mt-10">
+    <h3 className="text-xl font-semibold mb-4">Маржа по каждому товару</h3>
+    <div className="overflow-x-auto">
+      <table className="min-w-full text-sm border border-gray-200">
+        <thead>
+          <tr className="bg-gray-100 text-left">
+            <th className="p-2 border">Название</th>
+            <th className="p-2 border">Себестоимость ($)</th>
+            <th className="p-2 border">Розничная ($)</th>
+            <th className="p-2 border">Прибыль ($)</th>
+            <th className="p-2 border">Маржа (%)</th>
+            <th className="p-2 border">Логистика / шт ($)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {results.itemDetails.map((item, idx) => (
+            <tr key={idx} className="border-t">
+              <td className="p-2 border">{item.name}</td>
+              <td className="p-2 border">${item.cost.toFixed(2)}</td>
+              <td className="p-2 border">${item.retail.toFixed(2)}</td>
+              <td className="p-2 border">${item.profit.toFixed(2)}</td>
+              <td className="p-2 border">{item.marginPercent.toFixed(1)}%</td>
+              <td className="p-2 border">${item.shippingPerUnit.toFixed(2)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  </div>
+)}
+
       </div>
     </div>
   );
